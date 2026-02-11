@@ -1,11 +1,27 @@
-name: test-action
+name: Spotify API Run
 
 on:
   push:
-  workflow_dispatch:
+  workflow_dispatch: # これで手動実行ボタンが使えます
 
 jobs:
-  test:
+  run-spotify:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Success"
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install spotipy python-dotenv
+
+      - name: Run Python script
+        env:
+          # ここで登録したSecretsを読み込んでいます
+          SPOTIPY_CLIENT_ID: ${{ secrets.SPOTIPY_CLIENT_ID }}
+          SPOTIPY_CLIENT_SECRET: ${{ secrets.SPOTIPY_CLIENT_SECRET }}
+        run: python main.py
