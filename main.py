@@ -4,30 +4,16 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from supabase import create_client
 import time
 
-# --- 設定 ---
+# --- テスト用に大幅に絞り込み ---
 TABLE_NAME = "ai_song_spotify_ranking"
 MIN_POPULARITY = 10
-TARGET_COUNT = 500
+TARGET_COUNT = 50 # 500件から50件に大幅削減
 
-# 認証設定
-client_id = os.getenv('SPOTIPY_CLIENT_ID')
-client_secret = os.getenv('SPOTIPY_CLIENT_SECRET')
-
-# デバッグ用：IDの最初だけ表示（ログで確認用）
-if client_id:
-    print(f"🛰️ 接続テスト開始... ClientID末尾: {client_id[-4:]}")
-
-try:
-    auth_manager = SpotifyClientCredentials(client_id=client_id, client_secret=client_secret)
-    sp = spotipy.Spotify(auth_manager=auth_manager)
-    # 接続テスト（これを1回挟むことで403の原因を切り分けます）
-    sp.search(q='test', limit=1)
-    print("✅ Spotify API への接続に成功しました！")
-except Exception as e:
-    print(f"❌ 接続エラー: {e}")
-    print("ヒント: Spotify Dashboardの 'Edit' で 'Web API' にチェックが入っているか確認してください。")
-
-# Supabase接続
+# 認証
+sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+    client_id=os.getenv('SPOTIPY_CLIENT_ID'),
+    client_secret=os.getenv('SPOTIPY_CLIENT_SECRET')
+))
 supabase = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY'))
 
 def calculate_ai_score(track, feat):
@@ -42,21 +28,25 @@ def calculate_ai_score(track, feat):
     return score
 
 def collect_songs(query, market):
-    print(f"🚀 {market} 市場の検索を開始します...")
-    count = 0
-    for offset in range(0, 1000, 50):
-        if count >= TARGET_COUNT: break
+    print(f"--- {market} 検索開始 ---")
+    try:
+        # まず検索自体ができるかテスト
+        res = sp.search(q=query, limit=10, type='track', market=market)
+        tracks = res['tracks']['items']
+        print(f"✅ 検索成功: {len(tracks)}件見つかりました")
         
-        try:
-            res = sp.search(q=query, limit=50, offset=offset, type='track', market=market)
-            tracks = res['tracks']['items']
-            if not tracks: break
+        count = 0
+        for i, t in enumerate(tracks):
+            if count >= TARGET_COUNT: break
             
-            ids = [t['id'] for t in tracks]
-            features = sp.audio_features(ids)
+            # 人気度チェック
+            if t['popularity'] < MIN_POPULARITY:
+                continue
             
-            for t, f in zip(tracks, features):
-                if t['popularity'] < MIN_POPULARITY: continue
+            # 1曲ずつオーディオ特性を取得（慎重に）
+            try:
+                f_list = sp.audio_features([t['id']])
+                f = f_list[0] if f_list else None
                 
                 score = calculate_ai_score(t, f)
                 if score >= 60:
@@ -72,14 +62,14 @@ def collect_songs(query, market):
                     }
                     supabase.table(TABLE_NAME).upsert(data, on_conflict="url").execute()
                     count += 1
-                    if count >= TARGET_COUNT: break
+                    print(f"[{count}] 保存完了: {t['name']}")
+            except Exception as e:
+                print(f"❌ 曲単位のエラー ({t['name']}): {e}")
             
-            print(f"📊 {market}: {count}件 保存済み")
-            time.sleep(0.1)
-        except Exception as e:
-            print(f"⚠️ ループ内でエラーが発生: {e}")
-            break
+            time.sleep(0.5) # 負荷をかけないよう待機時間を長く設定
+            
+    except Exception as e:
+        print(f"❌ 検索中にエラーが発生: {e}")
 
 # 実行
 collect_songs('"Suno" OR "Udio" (AI歌唱 OR 日本 OR JPOP)', 'JP')
-collect_songs('"Suno" OR "Udio" -JPOP -日本', 'US')
