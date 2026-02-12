@@ -1,15 +1,21 @@
-name: Spotify API Run
+name: Spotify to Supabase Ranking Bot
 
 on:
   push:
-  workflow_dispatch: # これで手動実行ボタンが使えます
+    branches: [ "main" ]
+  workflow_dispatch: # 手動実行用ボタンを表示
+  schedule:
+    - cron: '0 0 * * *' # 毎日 日本時間午前9時に自動実行
 
 jobs:
-  run-spotify:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # 権限エラーを防ぐために明示
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -17,11 +23,16 @@ jobs:
           python-version: '3.9'
 
       - name: Install dependencies
-        run: pip install spotipy python-dotenv
+        # 今回必要な spotipy と supabase を確実にインストール
+        run: |
+          pip install --upgrade pip
+          pip install spotipy supabase
 
-      - name: Run Python script
+      - name: Run Spotify Collector
         env:
-          # ここで登録したSecretsを読み込んでいます
+          # GitHub Secrets から認証情報を読み込み
           SPOTIPY_CLIENT_ID: ${{ secrets.SPOTIPY_CLIENT_ID }}
           SPOTIPY_CLIENT_SECRET: ${{ secrets.SPOTIPY_CLIENT_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python main.py
